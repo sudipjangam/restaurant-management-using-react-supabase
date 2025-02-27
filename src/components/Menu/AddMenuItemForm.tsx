@@ -1,4 +1,5 @@
-import { useState } from "react";
+
+import { useState, useRef } from "react";
 import { useForm } from "react-hook-form";
 import { useToast } from "@/components/ui/use-toast";
 import { Button } from "@/components/ui/button";
@@ -13,7 +14,7 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { supabase } from "@/integrations/supabase/client";
-import { X } from "lucide-react";
+import { X, Upload, Loader2, Image as ImageIcon } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
@@ -33,6 +34,11 @@ type FormData = {
 const AddMenuItemForm = ({ onClose, onSuccess }: AddMenuItemFormProps) => {
   const { toast } = useToast();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadedImageUrl, setUploadedImageUrl] = useState("");
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Fetch user's restaurant_id from their profile
   const { data: userProfile } = useQuery({
@@ -65,6 +71,125 @@ const AddMenuItemForm = ({ onClose, onSuccess }: AddMenuItemFormProps) => {
     },
   });
 
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      
+      // Check file size (max 5MB)
+      if (file.size > 5 * 1024 * 1024) {
+        toast({
+          title: "File too large",
+          description: "Maximum file size is 5MB",
+          variant: "destructive",
+        });
+        return;
+      }
+      
+      // Check file type
+      if (!file.type.startsWith("image/")) {
+        toast({
+          title: "Invalid file type",
+          description: "Please select an image file",
+          variant: "destructive",
+        });
+        return;
+      }
+      
+      setSelectedFile(file);
+    }
+  };
+
+  const uploadImage = async () => {
+    if (!selectedFile) return null;
+    
+    try {
+      setIsUploading(true);
+      setUploadProgress(10);
+      
+      // Convert file to base64
+      const reader = new FileReader();
+      
+      const base64Promise = new Promise<string>((resolve, reject) => {
+        reader.onload = (e) => {
+          if (e.target?.result) {
+            const base64String = e.target.result.toString().split(',')[1];
+            resolve(base64String);
+          } else {
+            reject(new Error("Failed to convert file to base64"));
+          }
+        };
+        reader.onerror = () => reject(reader.error);
+      });
+      
+      reader.readAsDataURL(selectedFile);
+      const base64String = await base64Promise;
+      
+      setUploadProgress(30);
+      
+      // Prepare form data for API call
+      const formData = new FormData();
+      formData.append('key', '6d207e02198a847aa98d0a2a901485a5');
+      formData.append('source', base64String);
+      formData.append('format', 'json');
+      
+      setUploadProgress(50);
+      
+      // Make API call to freeimage.host
+      const response = await fetch('https://freeimage.host/api/1/upload', {
+        method: 'POST',
+        body: formData,
+      });
+      
+      setUploadProgress(80);
+      
+      if (!response.ok) {
+        throw new Error(`Upload failed with status: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      console.log('Image upload response:', data);
+      
+      setUploadProgress(100);
+      
+      if (data.status_code === 200 && data.image && data.image.url) {
+        setUploadedImageUrl(data.image.url);
+        form.setValue('image_url', data.image.url);
+        toast({
+          title: "Image uploaded successfully",
+        });
+        return data.image.url;
+      } else {
+        throw new Error('Invalid response from image host');
+      }
+    } catch (error) {
+      console.error('Error uploading image:', error);
+      toast({
+        title: "Upload failed",
+        description: error instanceof Error ? error.message : "Failed to upload image",
+        variant: "destructive",
+      });
+      return null;
+    } finally {
+      setIsUploading(false);
+      setUploadProgress(0);
+    }
+  };
+
+  const triggerFileInput = () => {
+    if (fileInputRef.current) {
+      fileInputRef.current.click();
+    }
+  };
+  
+  const removeImage = () => {
+    setSelectedFile(null);
+    setUploadedImageUrl("");
+    form.setValue('image_url', "");
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
+
   const onSubmit = async (data: FormData) => {
     try {
       setIsSubmitting(true);
@@ -73,6 +198,15 @@ const AddMenuItemForm = ({ onClose, onSuccess }: AddMenuItemFormProps) => {
       if (!userProfile?.restaurant_id) {
         throw new Error('No restaurant assigned to user');
       }
+      
+      // If there's a selected file but not yet uploaded, upload it now
+      let imageUrl = data.image_url;
+      if (selectedFile && !uploadedImageUrl) {
+        const uploadedUrl = await uploadImage();
+        if (uploadedUrl) {
+          imageUrl = uploadedUrl;
+        }
+      }
 
       const { error } = await supabase.from("menu_items").insert([
         {
@@ -80,7 +214,7 @@ const AddMenuItemForm = ({ onClose, onSuccess }: AddMenuItemFormProps) => {
           description: data.description,
           price: parseFloat(data.price),
           category: data.category,
-          image_url: data.image_url,
+          image_url: imageUrl,
           restaurant_id: userProfile.restaurant_id,
           is_available: true,
         },
@@ -203,25 +337,120 @@ const AddMenuItemForm = ({ onClose, onSuccess }: AddMenuItemFormProps) => {
               name="image_url"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Image URL</FormLabel>
-                  <FormControl>
-                    <Input placeholder="Image URL" className="bg-gray-50" {...field} />
-                  </FormControl>
+                  <FormLabel>Image</FormLabel>
+                  <div className="space-y-4">
+                    <input
+                      type="file"
+                      ref={fileInputRef}
+                      onChange={handleFileChange}
+                      accept="image/*"
+                      className="hidden"
+                    />
+                    
+                    {!selectedFile && !uploadedImageUrl && (
+                      <div 
+                        onClick={triggerFileInput}
+                        className="border-2 border-dashed border-gray-300 rounded-md p-6 flex flex-col items-center justify-center cursor-pointer hover:border-purple-400 transition-colors"
+                      >
+                        <ImageIcon className="h-8 w-8 text-gray-400 mb-2" />
+                        <p className="text-sm text-gray-500">Click to upload an image</p>
+                        <p className="text-xs text-gray-400 mt-1">PNG, JPG or GIF (max 5MB)</p>
+                      </div>
+                    )}
+                    
+                    {selectedFile && !uploadedImageUrl && (
+                      <div className="border border-gray-200 rounded-md p-3">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-sm font-medium truncate max-w-[200px]">
+                            {selectedFile.name}
+                          </span>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={removeImage}
+                            className="h-8 w-8 p-0"
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </div>
+                        
+                        {isUploading ? (
+                          <div className="space-y-2">
+                            <div className="h-2 w-full bg-gray-100 rounded-full overflow-hidden">
+                              <div 
+                                className="h-full bg-purple-600 rounded-full transition-all duration-300" 
+                                style={{ width: `${uploadProgress}%` }}
+                              ></div>
+                            </div>
+                            <p className="text-xs text-gray-500 text-center">Uploading... {uploadProgress}%</p>
+                          </div>
+                        ) : (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={uploadImage}
+                            className="w-full"
+                          >
+                            <Upload className="h-4 w-4 mr-2" />
+                            Upload image
+                          </Button>
+                        )}
+                      </div>
+                    )}
+                    
+                    {uploadedImageUrl && (
+                      <div className="border border-gray-200 rounded-md overflow-hidden">
+                        <div className="relative aspect-video">
+                          <img 
+                            src={uploadedImageUrl} 
+                            alt="Uploaded" 
+                            className="object-cover w-full h-full"
+                          />
+                          <Button
+                            type="button"
+                            variant="destructive"
+                            size="sm"
+                            onClick={removeImage}
+                            className="absolute top-2 right-2 h-8 w-8 p-0 rounded-full"
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </div>
+                        <p className="text-xs text-gray-500 p-2 bg-gray-50 truncate">
+                          {uploadedImageUrl}
+                        </p>
+                      </div>
+                    )}
+                    
+                    <Input
+                      type="hidden"
+                      {...field}
+                    />
+                  </div>
                   <FormMessage />
                 </FormItem>
               )}
             />
 
             <div className="flex justify-end gap-2 pt-4">
-              <Button variant="outline" onClick={onClose}>
+              <Button variant="outline" onClick={onClose} type="button">
                 Cancel
               </Button>
               <Button 
                 type="submit" 
-                disabled={isSubmitting}
+                disabled={isSubmitting || isUploading}
                 className="bg-purple-600 hover:bg-purple-700"
               >
-                {isSubmitting ? "Adding..." : "Add Item"}
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Adding...
+                  </>
+                ) : (
+                  "Add Item"
+                )}
               </Button>
             </div>
           </form>
