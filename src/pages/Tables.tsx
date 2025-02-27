@@ -1,3 +1,4 @@
+
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -23,30 +24,54 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-interface Table {
+type RestaurantTable = {
   id: string;
   name: string;
   capacity: number;
   status: string;
   restaurant_id: string;
-}
+  created_at: string;
+  updated_at: string;
+};
 
 const Tables = () => {
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
-  const [editingTable, setEditingTable] = useState<Table | null>(null);
+  const [editingTable, setEditingTable] = useState<RestaurantTable | null>(null);
   const { toast } = useToast();
+  const [userName, setUserName] = useState<string>("");
+
+  // Fetch user profile to get the username
+  useQuery({
+    queryKey: ["user-profile"],
+    queryFn: async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("No user found");
+
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("first_name")
+        .eq("id", user.id)
+        .single();
+
+      if (error) throw error;
+      if (data?.first_name) {
+        setUserName(data.first_name);
+      }
+      return data;
+    },
+  });
 
   const { data: tables = [], refetch } = useQuery({
     queryKey: ["tables"],
     queryFn: async () => {
       console.log("Fetching tables...");
-      const { data: profile } = await supabase.auth.getUser();
-      if (!profile.user) throw new Error("No user found");
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("No user found");
 
       const { data: userProfile } = await supabase
         .from("profiles")
         .select("restaurant_id")
-        .eq("id", profile.user.id)
+        .eq("id", user.id)
         .single();
 
       if (!userProfile?.restaurant_id) {
@@ -54,7 +79,7 @@ const Tables = () => {
       }
 
       const { data, error } = await supabase
-        .from("rooms")
+        .from("restaurant_tables")
         .select("*")
         .eq("restaurant_id", userProfile.restaurant_id)
         .order("name");
@@ -63,8 +88,7 @@ const Tables = () => {
         console.error("Error fetching tables:", error);
         throw error;
       }
-      console.log("Fetched tables:", data);
-      return data as Table[];
+      return data as RestaurantTable[];
     },
   });
 
@@ -78,14 +102,13 @@ const Tables = () => {
     };
 
     try {
-      console.log("Submitting table data:", tableData);
-      const { data: profile } = await supabase.auth.getUser();
-      if (!profile.user) throw new Error("No user found");
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("No user found");
 
       const { data: userProfile } = await supabase
         .from("profiles")
         .select("restaurant_id")
-        .eq("id", profile.user.id)
+        .eq("id", user.id)
         .single();
 
       if (!userProfile?.restaurant_id) {
@@ -93,9 +116,8 @@ const Tables = () => {
       }
 
       if (editingTable) {
-        console.log("Updating table:", editingTable.id);
         const { error } = await supabase
-          .from("rooms")
+          .from("restaurant_tables")
           .update({ ...tableData })
           .eq("id", editingTable.id);
 
@@ -105,9 +127,8 @@ const Tables = () => {
           description: "Table updated successfully",
         });
       } else {
-        console.log("Creating new table");
         const { error } = await supabase
-          .from("rooms")
+          .from("restaurant_tables")
           .insert([{ ...tableData, restaurant_id: userProfile.restaurant_id }]);
 
         if (error) throw error;
@@ -132,8 +153,10 @@ const Tables = () => {
 
   const handleDelete = async (id: string) => {
     try {
-      console.log("Deleting table:", id);
-      const { error } = await supabase.from("rooms").delete().eq("id", id);
+      const { error } = await supabase
+        .from("restaurant_tables")
+        .delete()
+        .eq("id", id);
       if (error) throw error;
       toast({
         title: "Success",
@@ -158,26 +181,26 @@ const Tables = () => {
         return "bg-green-500";
       case "reserved":
         return "bg-yellow-500";
-      case "maintenance":
-        return "bg-blue-500";
       default:
         return "bg-gray-500";
     }
   };
 
   return (
-    <div className="p-6">
-      <div className="flex justify-between items-center mb-8">
+    <div className="p-6 space-y-6 bg-gradient-to-br from-purple-50 to-white dark:from-gray-900 dark:to-gray-800">
+      <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-3xl font-bold">Tables</h1>
+          <h1 className="text-3xl font-bold bg-gradient-to-r from-purple-600 to-indigo-600 bg-clip-text text-transparent">
+            Table Management
+          </h1>
           <p className="text-muted-foreground mt-1">
-            Manage your restaurant tables and rooms
+            Welcome {userName || "User"}!
           </p>
         </div>
         <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
           <DialogTrigger asChild>
-            <Button onClick={() => setEditingTable(null)}>
-              <Plus className="mr-2" />
+            <Button onClick={() => setEditingTable(null)} className="bg-purple-600 hover:bg-purple-700">
+              <Plus className="mr-2 h-4 w-4" />
               Add Table
             </Button>
           </DialogTrigger>
@@ -194,7 +217,7 @@ const Tables = () => {
                   id="name"
                   name="name"
                   defaultValue={editingTable?.name}
-                  placeholder="e.g., Table 1, VIP Room"
+                  placeholder="e.g., Table 1"
                   required
                 />
               </div>
@@ -220,7 +243,6 @@ const Tables = () => {
                     <SelectItem value="available">Available</SelectItem>
                     <SelectItem value="occupied">Occupied</SelectItem>
                     <SelectItem value="reserved">Reserved</SelectItem>
-                    <SelectItem value="maintenance">Maintenance</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -231,11 +253,12 @@ const Tables = () => {
           </DialogContent>
         </Dialog>
       </div>
+
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
         {tables.map((table) => (
           <Card
             key={table.id}
-            className="p-4 hover:shadow-lg transition-shadow"
+            className="p-4 bg-white dark:bg-gray-800 shadow-md hover:shadow-lg transition-shadow"
           >
             <div className="flex flex-col space-y-4">
               <div className="flex justify-between items-start">

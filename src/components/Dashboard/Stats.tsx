@@ -23,7 +23,7 @@ const Stats = () => {
   const stats = [
     {
       title: "Total Sales",
-      value: `$${totalSales.toFixed(2)}`,
+      value: `₹${totalSales.toFixed(2)}`,
       icon: DollarSign,
       trend: "+12.5%",
       color: "text-green-600",
@@ -57,7 +57,7 @@ const Stats = () => {
     },
     {
       title: "Today's Revenue",
-      value: `$${todaysRevenue.toFixed(2)}`,
+      value: `₹${todaysRevenue.toFixed(2)}`,
       icon: TrendingUp,
       trend: "+8.2%",
       color: "text-orange-600",
@@ -69,10 +69,11 @@ const Stats = () => {
     },
   ];
 
+  // Find the selected stat data
   const selectedStatData = selectedStat ? stats.find(stat => stat.title === selectedStat) : null;
 
   return (
-    <>
+    <div className="space-y-6">
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 animate-fade-in">
         {stats.map((stat, index) => (
           <StatCard
@@ -95,7 +96,7 @@ const Stats = () => {
           onClose={() => setSelectedStat(null)}
         />
       )}
-    </>
+    </div>
   );
 };
 

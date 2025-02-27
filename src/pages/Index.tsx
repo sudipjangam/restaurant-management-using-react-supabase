@@ -42,12 +42,14 @@ const Index = () => {
           Dashboard Overview
         </h1>
         <div className="flex items-center gap-2">
-          <div className="h-2 w-2 bg-green-500 rounded-full animate-pulse" />
+          <div className="h-2 w-2 bg-green-500 rounded-full animate-[pulse_1s_ease-in-out_infinite]" />
           <span className="text-sm text-muted-foreground">Live Updates</span>
         </div>
       </div>
       
-      <QuickStats />
+      <div className="rounded-xl bg-gradient-to-br from-card/50 to-background/50 backdrop-blur-xl border border-primary/10 p-4 md:p-6">
+        <QuickStats />
+      </div>
       
       <div className="rounded-xl bg-gradient-to-br from-card/50 to-background/50 backdrop-blur-xl border border-primary/10 p-4 md:p-6">
         <h2 className="text-xl font-semibold mb-4">Weekly Sales Overview</h2>
@@ -55,6 +57,9 @@ const Index = () => {
       </div>
       
       <div className="rounded-xl bg-gradient-to-br from-card/50 to-background/50 backdrop-blur-xl border border-primary/10 p-4 md:p-6">
+        <h2 className="text-xl font-semibold mb-4 bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
+          Stats Overview
+        </h2>
         <Stats />
       </div>
       
