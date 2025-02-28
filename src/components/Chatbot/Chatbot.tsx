@@ -41,9 +41,9 @@ const Chatbot = () => {
     setIsLoading(true);
 
     try {
-      console.log("Calling chat-with-ai function with messages:", [...messages, userMessage]);
+      console.log("Calling chat-with-api function with messages:", [...messages, userMessage]);
       
-      const { data, error } = await supabase.functions.invoke('chat-with-ai', {
+      const { data, error } = await supabase.functions.invoke('chat-with-api', {
         body: { messages: [...messages, userMessage].map(m => ({ role: m.role, content: m.content })) },
       });
 
@@ -58,33 +58,34 @@ const Chatbot = () => {
 
       console.log("Response data:", data);
       
-      const response = data.choices?.[0]?.message;
+      // Extract the assistant message from the response
+      const assistantMessage = data.choices?.[0]?.message;
       
-      if (response) {
+      if (assistantMessage && assistantMessage.content) {
         setMessages((prev) => [
           ...prev,
-          { role: "assistant", content: response.content },
+          { role: "assistant", content: assistantMessage.content },
         ]);
       } else if (data.error) {
         throw new Error(`API error: ${data.error}`);
       } else {
-        throw new Error("Invalid response format from AI");
+        throw new Error("Invalid response format from API");
       }
     } catch (error) {
-      console.error("Error calling AI:", error);
+      console.error("Error calling API:", error);
       
       // Show error message to user
       setMessages((prev) => [
         ...prev,
         { 
           role: "assistant", 
-          content: "I'm sorry, I encountered an error. The restaurant admin should check that the API keys are configured correctly in the Supabase Edge Function secrets." 
+          content: "I'm sorry, I encountered an error. Please check that the API keys are configured correctly in the Supabase Edge Function secrets." 
         },
       ]);
       
       toast({
         title: "Error",
-        description: error instanceof Error ? error.message : "Failed to get response from AI. Please try again.",
+        description: error instanceof Error ? error.message : "Failed to get response from API. Please try again.",
         variant: "destructive",
       });
     } finally {

@@ -5,10 +5,10 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Check, X, Calendar, FileText } from "lucide-react";
-import { format, differenceInDays } from "date-fns";
+import { Check, X, Calendar, FileText, Edit, Trash2 } from "lucide-react";
+import { format, differenceInDays, isAfter } from "date-fns";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -40,10 +40,13 @@ interface Staff {
 
 const StaffLeaveManager: React.FC = () => {
   const [isAddLeaveOpen, setIsAddLeaveOpen] = useState(false);
+  const [isConfirmDeleteOpen, setIsConfirmDeleteOpen] = useState(false);
   const [selectedStaffId, setSelectedStaffId] = useState<string>("");
   const [startDate, setStartDate] = useState<string>("");
   const [endDate, setEndDate] = useState<string>("");
   const [reason, setReason] = useState<string>("");
+  const [editingLeave, setEditingLeave] = useState<StaffLeave | null>(null);
+  const [deletingLeaveId, setDeletingLeaveId] = useState<string | null>(null);
   const { toast } = useToast();
 
   const { data: restaurantId } = useQuery({
@@ -102,6 +105,14 @@ const StaffLeaveManager: React.FC = () => {
     },
   });
 
+  const resetForm = () => {
+    setSelectedStaffId("");
+    setStartDate("");
+    setEndDate("");
+    setReason("");
+    setEditingLeave(null);
+  };
+
   const handleAddLeave = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -114,37 +125,107 @@ const StaffLeaveManager: React.FC = () => {
       return;
     }
 
+    // Validate dates
+    if (isAfter(new Date(startDate), new Date(endDate))) {
+      toast({
+        title: "Invalid date range",
+        description: "End date must be after start date",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      if (editingLeave) {
+        // Update existing leave
+        const { error } = await supabase
+          .from("staff_leaves")
+          .update({
+            staff_id: selectedStaffId,
+            start_date: startDate,
+            end_date: endDate,
+            reason,
+          })
+          .eq("id", editingLeave.id);
+
+        if (error) throw error;
+
+        toast({
+          title: "Leave request updated",
+          description: "The leave request has been updated successfully",
+        });
+      } else {
+        // Add new leave
+        const { error } = await supabase
+          .from("staff_leaves")
+          .insert({
+            staff_id: selectedStaffId,
+            restaurant_id: restaurantId,
+            start_date: startDate,
+            end_date: endDate,
+            reason,
+            status: "pending"
+          });
+
+        if (error) throw error;
+
+        toast({
+          title: "Leave request submitted",
+          description: "The leave request has been added successfully",
+        });
+      }
+
+      // Reset form
+      resetForm();
+      setIsAddLeaveOpen(false);
+      refetchLeaves();
+    } catch (error) {
+      console.error("Error adding/updating leave:", error);
+      toast({
+        title: "Error",
+        description: "Failed to save leave request. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleEditLeave = (leave: StaffLeave) => {
+    setEditingLeave(leave);
+    setSelectedStaffId(leave.staff_id);
+    setStartDate(leave.start_date);
+    setEndDate(leave.end_date);
+    setReason(leave.reason || "");
+    setIsAddLeaveOpen(true);
+  };
+
+  const handleDeleteLeave = (leaveId: string) => {
+    setDeletingLeaveId(leaveId);
+    setIsConfirmDeleteOpen(true);
+  };
+
+  const confirmDeleteLeave = async () => {
+    if (!deletingLeaveId) return;
+
     try {
       const { error } = await supabase
         .from("staff_leaves")
-        .insert({
-          staff_id: selectedStaffId,
-          restaurant_id: restaurantId,
-          start_date: startDate,
-          end_date: endDate,
-          reason,
-          status: "pending"
-        });
+        .delete()
+        .eq("id", deletingLeaveId);
 
       if (error) throw error;
 
       toast({
-        title: "Leave request submitted",
-        description: "The leave request has been added successfully",
+        title: "Leave deleted",
+        description: "The leave request has been deleted successfully",
       });
 
-      // Reset form
-      setSelectedStaffId("");
-      setStartDate("");
-      setEndDate("");
-      setReason("");
-      setIsAddLeaveOpen(false);
+      setIsConfirmDeleteOpen(false);
       refetchLeaves();
     } catch (error) {
-      console.error("Error adding leave:", error);
+      console.error("Error deleting leave:", error);
       toast({
         title: "Error",
-        description: "Failed to add leave request. Please try again.",
+        description: "Failed to delete leave request. Please try again.",
         variant: "destructive",
       });
     }
@@ -200,7 +281,7 @@ const StaffLeaveManager: React.FC = () => {
           </DialogTrigger>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Request Staff Leave</DialogTitle>
+              <DialogTitle>{editingLeave ? "Edit Leave Request" : "Request Staff Leave"}</DialogTitle>
             </DialogHeader>
             <form onSubmit={handleAddLeave} className="space-y-4">
               <div>
@@ -260,7 +341,7 @@ const StaffLeaveManager: React.FC = () => {
               </div>
               
               <Button type="submit" className="w-full bg-purple-600 hover:bg-purple-700">
-                Submit Request
+                {editingLeave ? "Update Request" : "Submit Request"}
               </Button>
             </form>
           </DialogContent>
@@ -318,26 +399,44 @@ const StaffLeaveManager: React.FC = () => {
                     {getStatusBadge(leave.status)}
                   </TableCell>
                   <TableCell>
-                    {leave.status === 'pending' && (
-                      <div className="flex gap-2">
-                        <Button
-                          onClick={() => updateLeaveStatus(leave.id, 'approved')}
-                          size="sm"
-                          variant="outline"
-                          className="border-green-500 text-green-600 hover:bg-green-50"
-                        >
-                          <Check className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          onClick={() => updateLeaveStatus(leave.id, 'rejected')}
-                          size="sm"
-                          variant="outline"
-                          className="border-red-500 text-red-600 hover:bg-red-50"
-                        >
-                          <X className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    )}
+                    <div className="flex gap-2">
+                      {leave.status === 'pending' && (
+                        <>
+                          <Button
+                            onClick={() => updateLeaveStatus(leave.id, 'approved')}
+                            size="sm"
+                            variant="outline"
+                            className="border-green-500 text-green-600 hover:bg-green-50"
+                          >
+                            <Check className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            onClick={() => updateLeaveStatus(leave.id, 'rejected')}
+                            size="sm"
+                            variant="outline"
+                            className="border-red-500 text-red-600 hover:bg-red-50"
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </>
+                      )}
+                      <Button
+                        onClick={() => handleEditLeave(leave)}
+                        size="sm"
+                        variant="outline"
+                        className="border-blue-500 text-blue-600 hover:bg-blue-50"
+                      >
+                        <Edit className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        onClick={() => handleDeleteLeave(leave.id)}
+                        size="sm"
+                        variant="outline"
+                        className="border-red-500 text-red-600 hover:bg-red-50"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}
@@ -345,6 +444,22 @@ const StaffLeaveManager: React.FC = () => {
           </Table>
         )}
       </Card>
+
+      {/* Confirm Delete Dialog */}
+      <Dialog open={isConfirmDeleteOpen} onOpenChange={setIsConfirmDeleteOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Confirm Deletion</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete this leave request? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsConfirmDeleteOpen(false)}>Cancel</Button>
+            <Button variant="destructive" onClick={confirmDeleteLeave}>Delete</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

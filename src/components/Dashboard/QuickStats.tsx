@@ -6,8 +6,10 @@ import { ClipboardList, TableProperties, Package2, Users, Calendar } from "lucid
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { format, isAfter, isBefore, addDays } from "date-fns";
+import { useNavigate } from "react-router-dom";
 
 const QuickStats = () => {
+  const navigate = useNavigate();
   const { data: profile } = useQuery({
     queryKey: ["profile"],
     queryFn: async () => {
@@ -90,7 +92,7 @@ const QuickStats = () => {
 
   if (isLoading) {
     return (
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
         {[...Array(5)].map((_, i) => (
           <Card key={i} className="p-6">
             <Skeleton className="h-4 w-24 mb-2" />
@@ -106,40 +108,56 @@ const QuickStats = () => {
       title: "Active Orders",
       value: stats?.activeOrders || 0,
       icon: ClipboardList,
-      color: "bg-blue-100 text-blue-700"
+      color: "bg-blue-100 text-blue-700",
+      route: "/orders",
+      alert: false
     },
     {
       title: "Available Tables",
       value: `${stats?.availableTables || 0}/${stats?.totalTables || 0}`,
       icon: TableProperties,
-      color: "bg-green-100 text-green-700"
+      color: "bg-green-100 text-green-700",
+      route: "/tables",
+      alert: false
     },
     {
       title: "Low Stock Items",
       value: stats?.lowStockItems || 0,
       icon: Package2,
       color: stats?.lowStockItems > 0 ? "bg-red-100 text-red-700" : "bg-orange-100 text-orange-700",
+      route: "/inventory",
       alert: stats?.lowStockItems > 0
     },
     {
       title: "Staff on Duty",
       value: stats?.staffOnDuty || 0,
       icon: Users,
-      color: "bg-purple-100 text-purple-700"
+      color: "bg-purple-100 text-purple-700",
+      route: "/staff",
+      alert: false
     },
     {
       title: "Upcoming Leaves",
       value: stats?.upcomingLeaves || 0,
       icon: Calendar,
       color: stats?.upcomingLeaves > 0 ? "bg-amber-100 text-amber-700" : "bg-indigo-100 text-indigo-700",
+      route: "/staff?tab=leaves",
       alert: stats?.upcomingLeaves > 0
     }
   ];
 
+  const handleCardClick = (route: string) => {
+    navigate(route);
+  };
+
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
       {quickStats.map((stat, index) => (
-        <Card key={index} className="p-6 hover:shadow-lg transition-shadow">
+        <Card 
+          key={index} 
+          className="p-6 hover:shadow-lg transition-shadow cursor-pointer"
+          onClick={() => handleCardClick(stat.route)}
+        >
           <div className="flex items-start justify-between">
             <div>
               <p className="text-sm font-medium text-muted-foreground flex items-center gap-2">

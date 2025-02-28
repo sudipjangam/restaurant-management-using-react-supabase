@@ -1,5 +1,4 @@
-
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { useToast } from "@/components/ui/use-toast";
 import { Button } from "@/components/ui/button";
@@ -18,9 +17,20 @@ import { X, Upload, Loader2, Image as ImageIcon } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
+interface MenuItem {
+  id: string;
+  name: string;
+  description: string;
+  category: string;
+  price: number;
+  image_url: string;
+  is_available: boolean;
+}
+
 interface AddMenuItemFormProps {
   onClose: () => void;
   onSuccess: () => void;
+  editingItem?: MenuItem | null;
 }
 
 type FormData = {
@@ -31,12 +41,12 @@ type FormData = {
   image_url: string;
 };
 
-const AddMenuItemForm = ({ onClose, onSuccess }: AddMenuItemFormProps) => {
+const AddMenuItemForm = ({ onClose, onSuccess, editingItem }: AddMenuItemFormProps) => {
   const { toast } = useToast();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
-  const [uploadedImageUrl, setUploadedImageUrl] = useState("");
+  const [uploadedImageUrl, setUploadedImageUrl] = useState(editingItem?.image_url || "");
   const [uploadProgress, setUploadProgress] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -63,13 +73,27 @@ const AddMenuItemForm = ({ onClose, onSuccess }: AddMenuItemFormProps) => {
 
   const form = useForm<FormData>({
     defaultValues: {
-      name: "",
-      description: "",
-      price: "",
-      category: "",
-      image_url: "",
+      name: editingItem?.name || "",
+      description: editingItem?.description || "",
+      price: editingItem?.price ? String(editingItem.price) : "",
+      category: editingItem?.category || "",
+      image_url: editingItem?.image_url || "",
     },
   });
+
+  // Keep this in useEffect to handle any changes to editingItem
+  useEffect(() => {
+    if (editingItem) {
+      form.reset({
+        name: editingItem.name || "",
+        description: editingItem.description || "",
+        price: editingItem.price ? String(editingItem.price) : "",
+        category: editingItem.category || "",
+        image_url: editingItem.image_url || "",
+      });
+      setUploadedImageUrl(editingItem.image_url || "");
+    }
+  }, [editingItem, form]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -126,27 +150,17 @@ const AddMenuItemForm = ({ onClose, onSuccess }: AddMenuItemFormProps) => {
       
       setUploadProgress(30);
       
-      // Prepare form data for API call
-      const formData = new FormData();
-      formData.append('key', '6d207e02198a847aa98d0a2a901485a5');
-      formData.append('source', base64String);
-      formData.append('format', 'json');
-      
-      setUploadProgress(50);
-      
-      // Make API call to freeimage.host
-      const response = await fetch('https://freeimage.host/api/1/upload', {
-        method: 'POST',
-        body: formData,
+      // Use Supabase Edge Function as a proxy to bypass CORS
+      const { data, error } = await supabase.functions.invoke('upload-image', {
+        body: { base64Image: base64String }
       });
+      
+      if (error) {
+        throw new Error(`Upload proxy failed: ${error.message}`);
+      }
       
       setUploadProgress(80);
       
-      if (!response.ok) {
-        throw new Error(`Upload failed with status: ${response.status}`);
-      }
-      
-      const data = await response.json();
       console.log('Image upload response:', data);
       
       setUploadProgress(100);
@@ -208,31 +222,52 @@ const AddMenuItemForm = ({ onClose, onSuccess }: AddMenuItemFormProps) => {
         }
       }
 
-      const { error } = await supabase.from("menu_items").insert([
-        {
-          name: data.name,
-          description: data.description,
-          price: parseFloat(data.price),
-          category: data.category,
-          image_url: imageUrl,
-          restaurant_id: userProfile.restaurant_id,
-          is_available: true,
-        },
-      ]);
+      const menuItemData = {
+        name: data.name,
+        description: data.description,
+        price: parseFloat(data.price),
+        category: data.category,
+        image_url: imageUrl,
+        is_available: true,
+      };
 
-      if (error) throw error;
+      if (editingItem) {
+        // Update existing menu item
+        const { error } = await supabase
+          .from("menu_items")
+          .update(menuItemData)
+          .eq("id", editingItem.id);
 
-      toast({
-        title: "Success",
-        description: "Menu item added successfully",
-      });
+        if (error) throw error;
+
+        toast({
+          title: "Success",
+          description: "Menu item updated successfully",
+        });
+      } else {
+        // Insert new menu item
+        const { error } = await supabase
+          .from("menu_items")
+          .insert([{
+            ...menuItemData,
+            restaurant_id: userProfile.restaurant_id,
+          }]);
+
+        if (error) throw error;
+
+        toast({
+          title: "Success",
+          description: "Menu item added successfully",
+        });
+      }
+
       onSuccess();
       onClose();
     } catch (error) {
-      console.error("Error adding menu item:", error);
+      console.error("Error adding/updating menu item:", error);
       toast({
         title: "Error",
-        description: error instanceof Error ? error.message : "Failed to add menu item",
+        description: error instanceof Error ? error.message : "Failed to save menu item",
         variant: "destructive",
       });
     } finally {
@@ -253,7 +288,7 @@ const AddMenuItemForm = ({ onClose, onSuccess }: AddMenuItemFormProps) => {
         >
           <X className="h-4 w-4" />
         </Button>
-        <h2 className="text-lg font-semibold mb-4">Add New Menu Item</h2>
+        <h2 className="text-lg font-semibold mb-4">{editingItem ? "Edit Menu Item" : "Add New Menu Item"}</h2>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
             <FormField
@@ -293,6 +328,7 @@ const AddMenuItemForm = ({ onClose, onSuccess }: AddMenuItemFormProps) => {
                   <Select 
                     onValueChange={field.onChange} 
                     defaultValue={field.value}
+                    value={field.value}
                   >
                     <FormControl>
                       <SelectTrigger className="bg-gray-50">
@@ -446,10 +482,10 @@ const AddMenuItemForm = ({ onClose, onSuccess }: AddMenuItemFormProps) => {
                 {isSubmitting ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Adding...
+                    {editingItem ? "Updating..." : "Adding..."}
                   </>
                 ) : (
-                  "Add Item"
+                  editingItem ? "Update Item" : "Add Item"
                 )}
               </Button>
             </div>
