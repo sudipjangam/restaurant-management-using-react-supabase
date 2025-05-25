@@ -5,57 +5,75 @@ import { Card } from "@/components/ui/card";
 import { ClipboardList, TableProperties, Package2, Users, Calendar } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { format, isAfter, isBefore, addDays } from "date-fns";
+import { format, isAfter, isBefore, addDays, startOfDay, endOfDay, startOfWeek, startOfMonth } from "date-fns";
 import { useNavigate } from "react-router-dom";
+import { useRestaurantId } from "@/hooks/useRestaurantId";
 
-const QuickStats = () => {
+interface QuickStatsProps {
+  timeRange?: string;
+}
+
+const QuickStats = ({ timeRange = "today" }: QuickStatsProps) => {
   const navigate = useNavigate();
-  const { data: profile } = useQuery({
-    queryKey: ["profile"],
-    queryFn: async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("No user found");
+  const { restaurantId, isLoading: loadingRestaurantId } = useRestaurantId();
 
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("restaurant_id")
-        .eq("id", user.id)
-        .single();
-
-      if (error) throw error;
-      return data;
-    },
-  });
+  // Calculate date range based on selected time range
+  const getDateRange = () => {
+    const today = new Date();
+    
+    switch (timeRange) {
+      case "week":
+        return {
+          start: startOfWeek(today),
+          end: endOfDay(today)
+        };
+      case "month":
+        return {
+          start: startOfMonth(today),
+          end: endOfDay(today)
+        };
+      case "today":
+      default:
+        return {
+          start: startOfDay(today),
+          end: endOfDay(today)
+        };
+    }
+  };
+  
+  const dateRange = getDateRange();
 
   const { data: stats, isLoading } = useQuery({
-    queryKey: ["dashboard-quick-stats", profile?.restaurant_id],
-    enabled: !!profile?.restaurant_id,
+    queryKey: ["dashboard-quick-stats", restaurantId, timeRange],
+    enabled: !!restaurantId,
     queryFn: async () => {
-      // Get active orders
+      // Get active orders for the selected time range
       const { data: activeOrders } = await supabase
         .from("orders")
         .select("id")
-        .eq("restaurant_id", profile?.restaurant_id)
-        .eq("status", "pending");
+        .eq("restaurant_id", restaurantId)
+        .eq("status", "pending")
+        .gte('created_at', dateRange.start.toISOString())
+        .lte('created_at', dateRange.end.toISOString());
 
       // Get available tables
       const { data: tables } = await supabase
         .from("rooms")
         .select("id, status")
-        .eq("restaurant_id", profile?.restaurant_id);
+        .eq("restaurant_id", restaurantId);
 
       // Get low stock items
       const { data: lowStockItems } = await supabase
         .from("inventory_items")
         .select("id, quantity, reorder_level")
-        .eq("restaurant_id", profile?.restaurant_id)
+        .eq("restaurant_id", restaurantId)
         .not("reorder_level", "is", null);
 
       // Get staff on duty (we'll assume staff without a shift are not on duty)
       const { data: staffOnDuty } = await supabase
         .from("staff")
         .select("id")
-        .eq("restaurant_id", profile?.restaurant_id)
+        .eq("restaurant_id", restaurantId)
         .not("Shift", "is", null);
         
       // Get upcoming staff leaves (next 7 days)
@@ -64,7 +82,7 @@ const QuickStats = () => {
       const { data: upcomingLeaves } = await supabase
         .from("staff_leaves")
         .select("*")
-        .eq("restaurant_id", profile?.restaurant_id)
+        .eq("restaurant_id", restaurantId)
         .eq("status", "approved")
         .or(`start_date.gte.${format(today, 'yyyy-MM-dd')},end_date.gte.${format(today, 'yyyy-MM-dd')}`);
 
@@ -90,7 +108,7 @@ const QuickStats = () => {
     },
   });
 
-  if (isLoading) {
+  if (loadingRestaurantId || isLoading) {
     return (
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
         {[...Array(5)].map((_, i) => (
@@ -108,7 +126,7 @@ const QuickStats = () => {
       title: "Active Orders",
       value: stats?.activeOrders || 0,
       icon: ClipboardList,
-      color: "bg-blue-100 text-blue-700",
+      color: "bg-blue-100 dark:bg-blue-900/40 text-brand-deep-blue dark:text-blue-300",
       route: "/orders",
       alert: false
     },
@@ -116,7 +134,7 @@ const QuickStats = () => {
       title: "Available Tables",
       value: `${stats?.availableTables || 0}/${stats?.totalTables || 0}`,
       icon: TableProperties,
-      color: "bg-green-100 text-green-700",
+      color: "bg-green-100 dark:bg-green-900/40 text-brand-success-green dark:text-green-300",
       route: "/tables",
       alert: false
     },
@@ -124,7 +142,9 @@ const QuickStats = () => {
       title: "Low Stock Items",
       value: stats?.lowStockItems || 0,
       icon: Package2,
-      color: stats?.lowStockItems > 0 ? "bg-red-100 text-red-700" : "bg-orange-100 text-orange-700",
+      color: stats?.lowStockItems > 0 
+        ? "bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300" 
+        : "bg-orange-100 dark:bg-orange-900/40 text-brand-warm-orange dark:text-orange-300",
       route: "/inventory",
       alert: stats?.lowStockItems > 0
     },
@@ -132,7 +152,7 @@ const QuickStats = () => {
       title: "Staff on Duty",
       value: stats?.staffOnDuty || 0,
       icon: Users,
-      color: "bg-purple-100 text-purple-700",
+      color: "bg-purple-100 dark:bg-purple-900/40 text-brand-deep-blue dark:text-purple-300",
       route: "/staff",
       alert: false
     },
@@ -140,7 +160,9 @@ const QuickStats = () => {
       title: "Upcoming Leaves",
       value: stats?.upcomingLeaves || 0,
       icon: Calendar,
-      color: stats?.upcomingLeaves > 0 ? "bg-amber-100 text-amber-700" : "bg-indigo-100 text-indigo-700",
+      color: stats?.upcomingLeaves > 0 
+        ? "bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300" 
+        : "bg-indigo-100 dark:bg-indigo-900/40 text-brand-deep-blue dark:text-indigo-300",
       route: "/staff?tab=leaves",
       alert: stats?.upcomingLeaves > 0
     }
@@ -150,33 +172,46 @@ const QuickStats = () => {
     navigate(route);
   };
 
+  const getTimeRangeLabel = () => {
+    switch(timeRange) {
+      case "week": return "This Week";
+      case "month": return "This Month";
+      default: return "Today";
+    }
+  };
+
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-      {quickStats.map((stat, index) => (
-        <Card 
-          key={index} 
-          className="p-6 hover:shadow-lg transition-shadow cursor-pointer"
-          onClick={() => handleCardClick(stat.route)}
-        >
-          <div className="flex items-start justify-between">
-            <div>
-              <p className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-                {stat.title}
-                {stat.alert && (
-                  <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200">
-                    Alert
-                  </Badge>
-                )}
-              </p>
-              <h3 className="text-2xl font-bold mt-2">{stat.value}</h3>
+    <>
+      <div className="mb-4">
+        <h2 className="text-lg font-semibold">Quick Stats <span className="text-sm font-normal text-muted-foreground">({getTimeRangeLabel()})</span></h2>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+        {quickStats.map((stat, index) => (
+          <Card 
+            key={index} 
+            className="p-6 shadow-card hover:shadow-card-hover transition-all duration-200 cursor-pointer transform hover:scale-[1.02] bg-white dark:bg-brand-deep-blue/80 border border-border/30"
+            onClick={() => handleCardClick(stat.route)}
+          >
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+                  {stat.title}
+                  {stat.alert && (
+                    <Badge variant="outline" className="bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-300 border-red-200 dark:border-red-800">
+                      Alert
+                    </Badge>
+                  )}
+                </p>
+                <h3 className="text-2xl font-bold mt-2">{stat.value}</h3>
+              </div>
+              <div className={`p-2 rounded-full ${stat.color}`}>
+                <stat.icon className="w-5 h-5" />
+              </div>
             </div>
-            <div className={`p-2 rounded-full ${stat.color}`}>
-              <stat.icon className="w-5 h-5" />
-            </div>
-          </div>
-        </Card>
-      ))}
-    </div>
+          </Card>
+        ))}
+      </div>
+    </>
   );
 };
 

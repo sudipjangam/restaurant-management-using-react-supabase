@@ -1,18 +1,38 @@
 
-import MenuGrid from "@/components/Menu/MenuGrid";
+import { Suspense, lazy } from "react";
+import { Card } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
+
+// Lazy load the MenuGrid component
+const MenuGrid = lazy(() => import("@/components/Menu/MenuGrid"));
 
 const Menu = () => {
   return (
-    <div className="p-6 bg-gradient-to-br from-purple-50 to-white dark:from-gray-900 dark:to-gray-800">
-      <div className="mb-6">
-        <h1 className="text-3xl font-bold bg-gradient-to-r from-purple-600 to-indigo-600 bg-clip-text text-transparent">
+    <div className="p-4 md:p-6 animate-fade-in bg-background">
+      <Card className="p-4 md:p-6 mb-6 bg-white border border-border/50 shadow-sm">
+        <h1 className="text-2xl md:text-3xl font-bold text-primary">
           Restaurant Menu
         </h1>
         <p className="text-muted-foreground mt-1">
           Manage your restaurant's menu items
         </p>
-      </div>
-      <MenuGrid />
+      </Card>
+      <Card className="p-4 md:p-6 rounded-xl bg-white border border-border/50 shadow-sm">
+        <Suspense fallback={
+          <div className="space-y-4">
+            <Skeleton className="h-12 w-full" />
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {[...Array(6)].map((_, i) => (
+                <Skeleton key={i} className="h-48 w-full rounded-lg" />
+              ))}
+            </div>
+          </div>
+        }>
+          <div className="overflow-x-auto">
+            <MenuGrid />
+          </div>
+        </Suspense>
+      </Card>
     </div>
   );
 };

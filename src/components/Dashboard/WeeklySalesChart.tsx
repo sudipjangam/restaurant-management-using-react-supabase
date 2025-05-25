@@ -1,11 +1,17 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, CartesianGrid, Tooltip } from "recharts";
-import { Skeleton } from "@/components/ui/skeleton";
 import { startOfWeek, addDays, format } from "date-fns";
+import { useTheme } from "@/hooks/useTheme";
+import { Card } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
+import { HighchartComponent } from "@/components/ui/highcharts";
+import { Options } from "highcharts";
 
 const WeeklySalesChart = () => {
+  const { theme } = useTheme();
+  const isDarkMode = theme === 'dark';
+  
   const { data: profile } = useQuery({
     queryKey: ["profile"],
     queryFn: async () => {
@@ -46,41 +52,96 @@ const WeeklySalesChart = () => {
     },
   });
 
-  if (isLoading) {
-    return <Skeleton className="w-full h-[300px] rounded-lg bg-secondary/50" />;
+  // Return a loading state while data is being fetched
+  if (isLoading || !weeklyData) {
+    return <Skeleton className="w-full h-[300px] rounded-lg bg-secondary/20" />;
   }
 
+  // Theme-aware colors
+  const backgroundColor = isDarkMode ? 'transparent' : 'transparent';
+  const textColor = isDarkMode ? '#F7FAFC' : '#2D3748';
+  const gridColor = isDarkMode ? '#4A5568' : '#E2E8F0';
+  const barColor = isDarkMode ? '#48BB78' : '#48BB78';
+
+  const chartOptions: Options = {
+    chart: {
+      type: 'column' as const,
+      backgroundColor: backgroundColor,
+      style: {
+        fontFamily: 'Inter, sans-serif'
+      },
+      height: 300
+    },
+    title: {
+      text: null
+    },
+    xAxis: {
+      categories: weeklyData.map(item => item.day),
+      labels: {
+        style: {
+          color: textColor
+        }
+      },
+      lineColor: gridColor,
+      tickColor: gridColor
+    },
+    yAxis: {
+      title: {
+        text: 'Revenue (₹)',
+        style: {
+          color: textColor
+        }
+      },
+      labels: {
+        style: {
+          color: textColor
+        },
+        formatter: function() {
+          return '₹' + this.value;
+        }
+      },
+      gridLineColor: gridColor
+    },
+    legend: {
+      enabled: false
+    },
+    credits: {
+      enabled: false
+    },
+    tooltip: {
+      headerFormat: '<span style="font-size:10px">{point.key}</span><table>',
+      pointFormat: '<tr><td style="color:{series.color};padding:0">Revenue: </td>' +
+        '<td style="padding:0"><b>₹{point.y:.0f}</b></td></tr>',
+      footerFormat: '</table>',
+      shared: true,
+      useHTML: true,
+      backgroundColor: isDarkMode ? '#2D3748' : '#FFFFFF',
+      borderColor: isDarkMode ? '#4A5568' : '#E2E8F0',
+      style: {
+        color: textColor
+      }
+    },
+    plotOptions: {
+      column: {
+        borderRadius: 6,
+        color: barColor,
+        animation: {
+          duration: 1000
+        }
+      }
+    },
+    series: [{
+      type: 'column' as const,
+      name: 'Revenue',
+      data: weeklyData.map(item => item.amount),
+      colorByPoint: false
+    }]
+  };
+
   return (
-    <ResponsiveContainer width="100%" height={300}>
-      <BarChart data={weeklyData} className="mt-4">
-        <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-        <XAxis 
-          dataKey="day"
-          tick={{ fill: '#888888' }}
-          axisLine={{ stroke: '#e5e7eb' }}
-        />
-        <YAxis 
-          tick={{ fill: '#888888' }}
-          axisLine={{ stroke: '#e5e7eb' }}
-          tickFormatter={(value) => `₹${value}`}
-        />
-        <Tooltip 
-          formatter={(value) => [`₹${value}`, 'Revenue']}
-          contentStyle={{ 
-            backgroundColor: 'white',
-            border: '1px solid #e5e7eb',
-            borderRadius: '8px',
-            boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
-          }}
-          cursor={{ fill: 'rgba(155, 135, 245, 0.1)' }}
-        />
-        <Bar 
-          dataKey="amount" 
-          fill="#9b87f5"
-          radius={[6, 6, 0, 0]}
-        />
-      </BarChart>
-    </ResponsiveContainer>
+    <Card className="p-4 shadow-card hover:shadow-card-hover transition-all duration-300">
+      <HighchartComponent options={chartOptions} />
+    </Card>
   );
 };
 
